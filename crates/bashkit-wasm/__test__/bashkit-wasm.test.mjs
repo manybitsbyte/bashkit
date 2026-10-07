@@ -449,6 +449,46 @@ test("throwing builtin -> stderr, exit 1", async () => {
   assert.match(r.stderr, /kaboom/);
 });
 
+test("structured builtin result: stderr kept as written, exit code drives the shell", async () => {
+  const bash = new Bash({
+    customBuiltins: {
+      compile: () => ({
+        stdout: "1 file\n",
+        stderr: "/src/inc/broken.h:1: Error: unexpected token\n",
+        exitCode: 2,
+      }),
+    },
+  });
+  const r = await bash.execute("compile; echo \"code=$?\"; compile || echo failed");
+  assert.equal(r.stdout, "1 file\ncode=2\n1 file\nfailed\n");
+  assert.equal(
+    r.stderr,
+    "/src/inc/broken.h:1: Error: unexpected token\n/src/inc/broken.h:1: Error: unexpected token\n",
+  );
+});
+
+test("structured builtin result: async, redirectable, defaults when fields are missing", async () => {
+  const bash = new Bash({
+    customBuiltins: {
+      warn: async () => ({ stderr: "careful\n" }),
+    },
+  });
+  const r = await bash.execute("warn 2>/log.txt; echo \"code=$?\"; cat /log.txt");
+  assert.equal(r.stdout, "code=0\ncareful\n");
+  assert.equal(r.stderr, "");
+});
+
+test("structured builtin result: a bad exitCode is a builtin error", async () => {
+  const bash = new Bash({
+    customBuiltins: {
+      odd: () => ({ exitCode: "two" }),
+    },
+  });
+  const r = await bash.execute("odd");
+  assert.equal(r.exitCode, 1);
+  assert.match(r.stderr, /^odd: callback result `exitCode` must be an integer from 0 to 255/);
+});
+
 test("builtins compose in a pipeline with jq", async () => {
   const bash = new Bash({
     customBuiltins: {

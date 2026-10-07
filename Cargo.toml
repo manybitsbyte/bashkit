@@ -4,7 +4,19 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+# Listed, not globbed: cargo expands the glob against the absolute path, so a
+# checkout under a directory with glob characters (e.g. `[org]/bashkit`) fails to load.
+members = [
+    "crates/bashkit-bench",
+    "crates/bashkit-capi",
+    "crates/bashkit-cli",
+    "crates/bashkit-coreutils-port",
+    "crates/bashkit-eval",
+    "crates/bashkit-js",
+    "crates/bashkit-python",
+    "crates/bashkit-wasm",
+    "crates/bashkit",
+]
 
 [workspace.package]
 version = "0.18.2"

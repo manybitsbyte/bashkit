@@ -203,8 +203,9 @@ struct BuiltinRequest<'a> {
 /// Adapts a JS callback into a bash `Builtin`.
 ///
 /// The callback receives one argument (a `BuiltinRequest` object) and returns
-/// either a `string` or a `Promise<string>` resolving to the builtin's stdout.
-/// Throwing / rejecting becomes stderr with exit code 1.
+/// either a `string` (the builtin's stdout), a `{ stdout, stderr, exitCode }`
+/// result, or a `Promise` of either. Throwing / rejecting becomes stderr with
+/// exit code 1.
 struct JsBuiltin {
     name: String,
     callback: SendWrapper<js_sys::Function>,
@@ -286,7 +287,58 @@ impl Builtin for JsBuiltin {
             Err(v) => v,
         };
 
-        Ok(CoreExecResult::ok(resolved.as_string().unwrap_or_default()))
+        Ok(builtin_result_from_js(&self.name, &resolved))
+    }
+}
+
+// Decision: mirror the Python binding's `BuiltinResult`. A returned
+// `{ stdout, stderr, exitCode }` is the embedder's own shell output, so its
+// stderr passes through as written; only thrown errors cross the
+// TM-INF-028 sanitizer, because those can carry host stack traces and paths
+// the embedder never chose to print.
+fn builtin_result_from_js(name: &str, value: &JsValue) -> CoreExecResult {
+    if let Some(stdout) = value.as_string() {
+        return CoreExecResult::ok(stdout);
+    }
+    if !value.is_object() {
+        return CoreExecResult::ok(String::new());
+    }
+    let field = |key: &str| {
+        js_sys::Reflect::get(value, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED)
+    };
+    let text = |key: &str| -> Result<String, String> {
+        let raw = field(key);
+        if raw.is_undefined() || raw.is_null() {
+            return Ok(String::new());
+        }
+        raw.as_string()
+            .ok_or_else(|| format!("{name}: callback result `{key}` must be a string\n"))
+    };
+    let exit_code = || -> Result<i32, String> {
+        let raw = field("exitCode");
+        if raw.is_undefined() || raw.is_null() {
+            return Ok(0);
+        }
+        match raw.as_f64() {
+            Some(code) if code.fract() == 0.0 && code >= 0.0 && code <= 255.0 => Ok(code as i32),
+            _ => Err(format!(
+                "{name}: callback result `exitCode` must be an integer from 0 to 255\n"
+            )),
+        }
+    };
+    let parts = text("stdout").and_then(|stdout| {
+        let stderr = text("stderr")?;
+        let code = exit_code()?;
+        Ok((stdout, stderr, code))
+    });
+    match parts {
+        Ok((stdout, stderr, exit_code)) => CoreExecResult {
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            exit_code,
+            ..Default::default()
+        },
+        Err(message) => CoreExecResult::err(message, 1),
     }
 }
 

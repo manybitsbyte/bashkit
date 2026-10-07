@@ -80,7 +80,19 @@ console.log(out.stdout);
 ```
 
 `ctx` is `{ name, argv, stdin, env, cwd, fs }`. Return the builtin's stdout as a
-string (or a `Promise<string>`); throwing becomes stderr with exit code 1.
+string, or `{ stdout, stderr, exitCode }` to write stderr and set the exit code
+yourself (or a `Promise` of either). Returned stderr is passed through as
+written. Throwing becomes stderr with exit code 1, with absolute paths in the
+message replaced by `<path>`.
+
+```js
+const bash = new Bash({
+  customBuiltins: {
+    compile: () => ({ stderr: "/src/main.c:3: Error: missing ;\n", exitCode: 2 }),
+  },
+});
+await bash.execute("compile || echo failed"); // stdout "failed\n", stderr kept
+```
 
 `ctx.fs` is a live handle to the **same** virtual filesystem the script sees, so
 a builtin can read inputs and write outputs that later commands pick up:

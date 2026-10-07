@@ -31,13 +31,26 @@ export interface BuiltinRequest {
 }
 
 /**
- * A JS callback registered as a bash builtin. Return the builtin's stdout, or a
- * `Promise` of it. Async callbacks are only awaited by {@link Bash.execute}
- * (not `executeSync`). Throwing / rejecting becomes stderr with exit code 1.
+ * What a custom builtin hands back when it needs more than stdout. `stderr` is
+ * passed through exactly as written (unlike a thrown error, whose message is
+ * sanitized). Missing fields default to `""` and exit code 0.
+ */
+export interface BuiltinResult {
+  readonly stdout?: string;
+  readonly stderr?: string;
+  /** Integer from 0 to 255. */
+  readonly exitCode?: number;
+}
+
+/**
+ * A JS callback registered as a bash builtin. Return the builtin's stdout, a
+ * {@link BuiltinResult}, or a `Promise` of either. Async callbacks are only
+ * awaited by {@link Bash.execute} (not `executeSync`). Throwing / rejecting
+ * becomes stderr with exit code 1, with absolute paths replaced by `<path>`.
  */
 export type CustomBuiltin = (
   ctx: BuiltinRequest,
-) => string | Promise<string>;
+) => string | BuiltinResult | Promise<string | BuiltinResult>;
 
 /** Closed set of named execution-policy baselines. */
 export type ExecutionProfileName = "hardened" | "standard" | "interactive";
